@@ -4,58 +4,65 @@
 
 现在安仔的规矩（不许发 emoji、一句不超过 50 字、被吐槽就怼回去）都是你手写死的，
 写完就定住了。这套东西是在旁边加一个小工：每天读一遍群聊，总结出新的说话习惯，
-写进一个单独的文件，安仔回话时顺手读一下。**不用改你的 PERSONA 和 BEHAVIOR_PROMPT。**
+写进一个单独的文件，安仔回话时顺手读一下。**不用改你的 PERSONA 和 BEHAVIOR\_PROMPT。**
 
-## 三个文件
+## 记录从哪来
+
+两种，脚本自己挑：
+
+- **有数据库**（推荐）：`.env` 里有 `DATABASE_URL`，直接读群聊表。记录最全，能跨天抽样，不用等它攒。
+- **没有数据库**：读同目录的 `group_log.txt`，一行一条，靠 `index\_snippet.js` 第 1 块写出来。
+
+## 文件
 
 | 文件 | 作用 | 放哪 |
 | --- | --- | --- |
-| `style_learn.py` | 每天跑一次，读记录、问模型、写结果 | 跟 `index.js` 同目录 |
-| `index_snippet.js` | 要抄进 `index.js` 的三块代码 | 参考用 |
+| `style\_learn.py` | 每天跑一次，读记录、问模型、写结果 | 跟 `index.js` 同目录 |
+| `index\_snippet.js` | 要抄进 `index.js` 的几块代码 | 参考用 |
 | `group-style.json` | 学习结果（脚本自动生成） | 跟 `index.js` 同目录 |
-| `group_log.txt` | 群聊记录（机器人自己写） | 跟 `index.js` 同目录 |
+| `group\_log.txt` | 群聊记录，只在没数据库时用 | 跟 `index.js` 同目录 |
 
 ## 怎么用
 
-### 1. 先让安仔把群聊记下来
+### 1. 接进 index.js
 
-打开 `index_snippet.js`，把**第 1 块**抄进 `index.js`，在你处理群消息的地方调一次：
+抄 `index\_snippet.js` 的**第 2 块**（`styleHint` 函数），再把**第 3 块**那行接上：
+原来传 `BEHAVIOR\_PROMPT` 的地方，改成
 
 ```js
-logMessage(senderName, text, isSelf);   // isSelf 是「这句是不是安仔自己说的」
+const behavior = BEHAVIOR_PROMPT + styleHint(groupId);
 ```
 
-没有这一步，学习脚本就没有东西可读。（也可以先把历史聊天记录导出成 `group_log.txt` 先学一次。）
+`groupId` 要一路传进你拼提示词的那个函数里。就这一处，
+PERSONA 和 BEHAVIOR\_PROMPT 本身一个字都不用改。
 
-### 2. 改 `style_learn.py` 最上面那四行
+### 2. 没有数据库的话，先让安仔把群聊记下来
+
+抄 `index\_snippet.js` 的**第 1 块**，在你处理群消息的地方调一次：
+
+```js
+logMessage(senderName, text, isSelf); // isSelf 是「这句是不是安仔自己说的」
+```
+
+### 3. 改 style\_learn.py 上面那几行
 
 ```python
-LOG   = 群聊记录的路径
-API   = 你的接口地址（OpenAI 兼容格式）
-KEY   = 你的 key
-MODEL = 你手上有哪个模型
+DAYS = 3          # 学最近几天的群聊
+PER_HOUR = 10     # 每个小时最多抽几条
+MODEL = '你的模型'
+API = ''          # 留空用 .env 里的 AI_BASE_URL
+KEY = ''          # 留空用 .env 里的 AI_KEY
 ```
 
-### 3. 手动跑一次，先看结果
+### 4. 手动跑一次，先看结果
 
 ```bash
 cd 你的机器人目录
-python3 style_learn.py
+python3 style\_learn.py
 ```
 
 跑完会打印它学到的东西，同时写出 `group-style.json`。**打开看一眼**——
-像样了再往下走；要是学出来全是废话，先改 `style_learn.py` 里的 PROMPT，别急着自动化。
-
-### 4. 接进安仔
-
-抄 `index_snippet.js` 的**第 2 块**（`styleHint` 函数），
-再把**第 3 块**那行接上：原来传 `BEHAVIOR_PROMPT` 的地方，改成
-
-```js
-const behavior = BEHAVIOR_PROMPT + styleHint();
-```
-
-就这一处。重启机器人。
+像样了再往下走；要是学出来全是废话，先改 `style\_learn.py` 里的 PROMPT，别急着自动化。
 
 ### 5. 挂定时任务
 
@@ -64,21 +71,32 @@ const behavior = BEHAVIOR_PROMPT + styleHint();
 ```bash
 crontab -e
 # 加一行：
-10 4 * * * cd /你的机器人目录 && /usr/bin/python3 style_learn.py >> style_learn.log 2>&1
+10 4 \* \* \* cd /你的机器人目录 && /usr/bin/python3 style\_learn.py >> style\_learn.log 2>&1
 ```
 
-## 三个坑
+## 跨天抽样这件事
+
+一开始写的是「取最近 12000 字」。结果学出来的全是当天下午的话题——
+那是「这个群今天下午怎么说话」，不是「这个群平时怎么说话」。
+
+现在按小时分桶，每桶均匀抽 `PER_HOUR` 条，跨天摊开。样本一摊开又冒出个新问题：
+模型开始只挑最烂大街的口头禅（哈哈哈哈、笑死、我不行了），把群里的梗全洗掉了。
+所以 PROMPT 里加了一条硬要求——**只总结这个群特有的说法，任何群都会有的通用语气词一律不要**。
+这两件事得配着来。老实点说，抽样的宽度和总结的味道一直在互相拉扯，
+现在的参数是试出来的，不是算出来的。
+
+## 四个坑
 
 1. **PROMPT 里那句「标着 SELF 的不要总结」别删。** 删了它就把自己以前说的话当成群的风格，越学越只会复读自己。
 2. **上限 20 条别放大。** 规矩一多就互相打架，安仔会变得四不像。
-3. **记录文件会长大。** 脚本学完会自动把它裁到最后 2 万字，不用管。
+3. **PROMPT 里「通用语气词一律不要」也别删。** 删了样本一广就退化成教它说「哈哈哈哈」。
+4. **别把记录喂太满。** 一天几千条全塞进去，模型只会抓高频垃圾，群里的梗反而被淹掉。
 
 ## 出问题了怎么办
 
-- 提示找不到记录文件 → 第 1 步没做，或者路径写错了。
+- 提示找不到记录文件 → 第 2 步没做，或者路径写错了。
 - 提示模型没返回 JSON → 换个模型试，或者把 PROMPT 最后的格式要求再写死一点。
-- 学出来的东西很水 → 记录太短或太杂。至少攒一天、几百条再学。
+- 学出来的东西很水 → 记录太短或太杂，或者 PROMPT 第 5 条被删了。
 
 ---
-
 PROMPT 改写自开源项目 MaiBot（GPL-3.0）。
